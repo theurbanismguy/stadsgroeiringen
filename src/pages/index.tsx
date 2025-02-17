@@ -1,74 +1,71 @@
-import { useState, useEffect } from "react";
-import Dropdown from "../components/Dropdown";
-import RingChart from "../components/RingChart";
-import Legend from "../components/Legend";
+import { useState, useEffect } from 'react';
+import { BVOVisualization } from '../components/BVOVisualization';
+import { CityData, BVOData } from '../types/types';
+
+// Function to transform raw JSON data into our CityData format
+const transformData = (rawData: any[]): CityData[] => {
+  return rawData.map(city => {
+    const periods = Object.entries(city)
+      .filter(([key]) => key !== "Gemeentenaam")
+      .map(([year, value]) => ({
+        year,
+        value: Number(value)
+      }))
+      .sort((a, b) => {
+        // Custom sort function to handle the special case of "<1400"
+        if (a.year === "<1400") return -1;
+        if (b.year === "<1400") return 1;
+        return a.year.localeCompare(b.year);
+      });
+
+    // Calculate cumulative values
+    let cumulative = 0;
+    const bvoData: BVOData[] = periods.map(period => {
+      cumulative += period.value;
+      return {
+        year: period.year,
+        value: period.value,
+        cumulative
+      };
+    });
+
+    return {
+      name: city.Gemeentenaam,
+      bvoData
+    };
+  });
+};
 
 export default function Home() {
-  const [municipalities, setMunicipalities] = useState<string[]>([]);
-  const [selectedMunicipality, setSelectedMunicipality] = useState<string | null>(null);
-  const [data, setData] = useState<any[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [cities, setCities] = useState<CityData[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activePeriods, setActivePeriods] = useState<Set<string>>(new Set());
 
-  // Fetch dataset from public/bvo.json when component mounts
   useEffect(() => {
-    fetch("/bvo.json")
-      .then((response) => {
-        if (!response.ok) throw new Error("Failed to load data");
+    fetch('/bvo.json')
+      .then(response => {
+        if (!response.ok) throw new Error('Failed to fetch data');
         return response.json();
       })
-      .then((jsonData) => {
-        setData(jsonData);
-        const municipalNames = jsonData.map((d: any) => d.Gemeentenaam);
-        setMunicipalities(municipalNames);
-        setSelectedMunicipality(municipalNames[0]); // Default to first municipality
-        setActivePeriods(new Set(Object.keys(jsonData[0]).filter(key => key !== "Gemeentenaam"))); // Initialize legend toggle
+      .then(data => {
+        const transformedData = transformData(data);
+        setCities(transformedData);
         setLoading(false);
       })
-      .catch((err) => {
+      .catch(err => {
         setError(err.message);
         setLoading(false);
       });
   }, []);
 
-  // Get selected municipality's data
-  const selectedData = data.find((d) => d.Gemeentenaam === selectedMunicipality) || {};
-
-  // Toggle active periods in the legend
-  const togglePeriod = (period: string) => {
-    setActivePeriods((prev) => {
-      const updated = new Set(prev);
-      if (updated.has(period)) updated.delete(period);
-      else updated.add(period);
-      return updated;
-    });
-  };
+  if (loading) return <div>Loading...</div>;
+  if (error) return <div>Error: {error}</div>;
+  if (!cities.length) return <div>No data available</div>;
 
   return (
-    <div>
-      <h1>Stadsgroeiringen</h1>
-
-      {loading && <p>Loading data...</p>}
-      {error && <p style={{ color: "red" }}>{error}</p>}
-
-      {!loading && !error && municipalities.length > 0 && (
-        <>
-          <Dropdown
-            municipalities={municipalities}
-            selectedMunicipality={selectedMunicipality!}
-            setSelectedMunicipality={setSelectedMunicipality}
-          />
-
-          <Legend
-            periods={Object.keys(selectedData).filter((key) => key !== "Gemeentenaam")}
-            activePeriods={activePeriods}
-            togglePeriod={togglePeriod}
-          />
-
-          <RingChart data={selectedData} width={500} height={500} activePeriods={activePeriods} />
-        </>
-      )}
-    </div>
+    <main className="p-4">
+      <h1 className="text-2xl font-bold mb-6">Dutch Cities BVO Visualization</h1>
+      <BVOVisualization cities={cities} />
+    </main>
   );
 }
